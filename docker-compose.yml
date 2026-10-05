@@ -1,0 +1,22 @@
+# One-command deploy on your own server: `docker compose up -d --build`
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fuel
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-fuel}
+      POSTGRES_DB: fuelstation
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  api:
+    build: ./backend
+    restart: unless-stopped
+    depends_on: [db]
+    env_file: ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://fuel:${DB_PASSWORD:-fuel}@db:5432/fuelstation?schema=public
+    ports:
+      - "4000:4000"
+volumes:
+  pgdata:

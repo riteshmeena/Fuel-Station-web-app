@@ -1,0 +1,292 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CUSTOMER
+  STAFF
+  ADMIN
+  SUPERADMIN
+}
+
+enum AccountStatus {
+  PENDING
+  VERIFIED
+  BLOCKED
+}
+
+enum Tier {
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum FuelType {
+  PETROL
+  DIESEL
+  PREMIUM_PETROL
+  CNG
+  EV
+}
+
+enum LedgerType {
+  EARN
+  REDEEM
+  BONUS
+  REFERRAL
+  ADJUST
+  EXPIRE
+}
+
+enum RedemptionStatus {
+  PENDING
+  USED
+  CANCELLED
+}
+
+enum BookingStatus {
+  REQUESTED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum ServiceType {
+  CAR_WASH
+  OIL_CHANGE
+  PUC_TEST
+  TYRE_CHECK
+  GENERAL_SERVICE
+}
+
+enum ReminderType {
+  PUC
+  INSURANCE
+  SERVICE
+  TYRE
+  CUSTOM
+}
+
+enum FeedbackStatus {
+  OPEN
+  RESOLVED
+}
+
+model User {
+  id            String        @id @default(cuid())
+  name          String
+  phone         String        @unique
+  email         String?       @unique
+  pinHash       String
+  googleSub     String?       @unique
+  role          Role          @default(CUSTOMER)
+  status        AccountStatus @default(PENDING)
+  cardNumber    String        @unique
+  points        Int           @default(0)
+  lifetimeSpend Decimal       @default(0) @db.Decimal(12, 2)
+  tier          Tier          @default(SILVER)
+  referralCode  String        @unique
+  referredById  String?
+  referredBy    User?         @relation("Referrals", fields: [referredById], references: [id])
+  referrals     User[]        @relation("Referrals")
+  avatarUrl     String?
+  pushToken     String?
+  verifiedAt    DateTime?
+  verifiedById  String?
+  tokenVersion  Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  vehicles      Vehicle[]
+  transactions  Transaction[] @relation("CustomerTx")
+  recordedTx    Transaction[] @relation("StaffTx")
+  ledger        PointsLedger[]
+  redemptions   Redemption[]
+  bookings      Booking[]
+  reminders     Reminder[]
+  feedback      Feedback[]
+  notifications Notification[]
+  coupons       UserCoupon[]
+}
+
+model Vehicle {
+  id           String        @id @default(cuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  regNumber    String
+  nickname     String?
+  make         String?
+  model        String?
+  fuelType     FuelType
+  isDefault    Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  transactions Transaction[]
+
+  @@unique([userId, regNumber])
+}
+
+model FuelPrice {
+  id            String   @id @default(cuid())
+  fuelType      FuelType
+  pricePerUnit  Decimal  @db.Decimal(8, 2)
+  effectiveDate DateTime @default(now())
+  updatedById   String?
+
+  @@index([fuelType, effectiveDate])
+}
+
+model Transaction {
+  id           String   @id @default(cuid())
+  invoiceNo    String   @unique
+  userId       String
+  user         User     @relation("CustomerTx", fields: [userId], references: [id])
+  vehicleId    String?
+  vehicle      Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  staffId      String
+  staff        User     @relation("StaffTx", fields: [staffId], references: [id])
+  fuelType     FuelType
+  quantity     Decimal  @db.Decimal(10, 2)
+  pricePerUnit Decimal  @db.Decimal(8, 2)
+  amount       Decimal  @db.Decimal(12, 2)
+  odometerKm   Int?
+  pointsEarned Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model PointsLedger {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      LedgerType
+  points    Int
+  note      String?
+  refId     String?
+  createdAt DateTime   @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Reward {
+  id          String       @id @default(cuid())
+  title       String
+  description String
+  pointsCost  Int
+  imageUrl    String?
+  category    String       @default("General")
+  stock       Int?
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  redemptions Redemption[]
+}
+
+model Redemption {
+  id         String           @id @default(cuid())
+  code       String           @unique
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rewardId   String
+  reward     Reward           @relation(fields: [rewardId], references: [id])
+  pointsUsed Int
+  status     RedemptionStatus @default(PENDING)
+  usedAt     DateTime?
+  createdAt  DateTime         @default(now())
+}
+
+model Offer {
+  id          String       @id @default(cuid())
+  title       String
+  description String
+  imageUrl    String?
+  couponCode  String?      @unique
+  bonusPoints Int          @default(0)
+  minTier     Tier         @default(SILVER)
+  startsAt    DateTime     @default(now())
+  endsAt      DateTime
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  claims      UserCoupon[]
+}
+
+model UserCoupon {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  offerId   String
+  offer     Offer     @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([userId, offerId])
+}
+
+model Booking {
+  id          String        @id @default(cuid())
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  service     ServiceType
+  slot        DateTime
+  vehicleReg  String?
+  notes       String?
+  status      BookingStatus @default(REQUESTED)
+  createdAt   DateTime      @default(now())
+
+  @@index([slot])
+}
+
+model Reminder {
+  id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      ReminderType
+  title     String
+  dueDate   DateTime
+  vehicleReg String?
+  done      Boolean      @default(false)
+  createdAt DateTime     @default(now())
+}
+
+model Feedback {
+  id        String         @id @default(cuid())
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int
+  category  String         @default("General")
+  message   String
+  reply     String?
+  status    FeedbackStatus @default(OPEN)
+  createdAt DateTime       @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  body      String
+  kind      String   @default("INFO")
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Announcement {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  imageUrl  String?
+  published Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Setting {
+  key   String @id
+  value Json
+}
